@@ -5,7 +5,7 @@ terraform {
     organization = "opella" # Replace with your TFC organization name
 
     workspaces {
-      name = "prod"
+      name = "prod-opella"
     }
   }
 
