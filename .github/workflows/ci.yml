@@ -1,0 +1,63 @@
+name: Terraform Quality Checks
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '.tflint.hcl'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '.tflint.hcl'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  lint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest # Or pin to a specific version
+
+      - name: Init TFLint
+        run: tflint --init
+        env:
+          # If plugins require credentials, configure them here
+          # e.g., GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TF_LOG: "TRACE" # Enables detailed logging during init for debugging
+
+      - name: Run TFLint
+        # Run recursively to check modules and environments
+        # Exclude .terraform directories to avoid linting provider schemas/cache
+        run: tflint --recursive --force --module --disable-rule=terraform_unused_declarations --exclude-path=**/.terraform/**
+
+
+  security_scan:
+    name: Checkov Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov action
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          quiet: false # Show all results
+          soft_fail: false # Fail the workflow on finding issues
+          # Add other flags as needed, e.g., skip checks, external modules path
+          # check: CKV_AZURE_*, CKV2_AZURE_* # Optionally specify checks 
