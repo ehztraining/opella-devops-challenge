@@ -19,5 +19,6 @@ terraform {
 
 provider "azurerm" {
   features {}
+  use_oidc = true
   # Credentials will be configured in Terraform Cloud (OIDC or Service Principal)
 } 
