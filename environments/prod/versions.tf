@@ -1,13 +1,7 @@
 terraform {
   required_version = ">= 1.3"
 
-  cloud {
-    organization = "opella" # Replace with your TFC organization name
-
-    workspaces {
-      name = "prod-opella"
-    }
-  }
+  
 
   required_providers {
     azurerm = {
