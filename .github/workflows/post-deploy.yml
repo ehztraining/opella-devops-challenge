@@ -1,0 +1,141 @@
+name: Post-Deployment Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment that was just deployed'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+jobs:
+  compliance_check:
+    name: Azure Compliance Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Azure CLI
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Run Azure Policy Compliance Check
+        run: |
+          echo "Running compliance check for ${{ github.event.inputs.environment }} environment"
+          
+          # Get Resource Group name based on environment
+          if [ "${{ github.event.inputs.environment }}" == "dev" ]; then
+            RG_PATTERN="rg-dev-*-main"
+          else
+            RG_PATTERN="rg-prod-*-main"
+          fi
+          
+          # Find the Resource Group
+          RG=$(az group list --query "[?starts_with(name, '${RG_PATTERN}')].name" -o tsv)
+          
+          if [ -z "$RG" ]; then
+            echo "No matching Resource Group found"
+            exit 1
+          fi
+          
+          echo "Checking policy compliance for Resource Group: $RG"
+          
+          # Get policy states for the resource group
+          az policy state list --resource-group $RG --query "[?complianceState=='NonCompliant']" -o table
+          
+          # This is informational only and won't fail the job
+          echo "Review any non-compliant resources listed above"
+
+  security_validation:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Azure CLI
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Check Network Security Groups
+        run: |
+          echo "Validating NSG rules for ${{ github.event.inputs.environment }} environment"
+          
+          # Get Resource Group name based on environment
+          if [ "${{ github.event.inputs.environment }}" == "dev" ]; then
+            RG_PATTERN="rg-dev-*-main"
+          else
+            RG_PATTERN="rg-prod-*-main"
+          fi
+          
+          # Find the Resource Group
+          RG=$(az group list --query "[?starts_with(name, '${RG_PATTERN}')].name" -o tsv)
+          
+          if [ -z "$RG" ]; then
+            echo "No matching Resource Group found"
+            exit 1
+          fi
+          
+          # List NSGs and their rules
+          echo "Network Security Groups in $RG:"
+          az network nsg list --resource-group $RG --query "[].name" -o tsv
+          
+          # Check for any NSGs that allow all inbound traffic (port *) from Internet
+          OPEN_NSGS=$(az network nsg list --resource-group $RG --query "[].securityRules[?sourceAddressPrefix=='*' && access=='Allow' && direction=='Inbound' && destinationPortRange=='*'].id" -o tsv)
+          
+          if [ -n "$OPEN_NSGS" ]; then
+            echo "WARNING: Found NSGs with open Internet access:"
+            echo $OPEN_NSGS
+            echo "Consider restricting these NSG rules to specific sources and ports."
+          else
+            echo "No widely open NSG rules found - Good!"
+          fi
+
+  infrastructure_report:
+    name: Generate Infrastructure Report
+    runs-on: ubuntu-latest
+    needs: [compliance_check, security_validation]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Azure CLI
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Generate Resources Report
+        run: |
+          echo "Generating infrastructure report for ${{ github.event.inputs.environment }} environment"
+          
+          # Get Resource Group name based on environment
+          if [ "${{ github.event.inputs.environment }}" == "dev" ]; then
+            RG_PATTERN="rg-dev-*-main"
+          else
+            RG_PATTERN="rg-prod-*-main"
+          fi
+          
+          # Find the Resource Group
+          RG=$(az group list --query "[?starts_with(name, '${RG_PATTERN}')].name" -o tsv)
+          
+          if [ -z "$RG" ]; then
+            echo "No matching Resource Group found"
+            exit 1
+          fi
+          
+          echo "Resources in $RG:"
+          az resource list --resource-group $RG --query "[].{name:name, type:type, location:location}" -o table
+          
+          echo "Report generated successfully!"
+      
+      - name: Success Message
+        run: |
+          echo "All post-deployment checks completed for ${{ github.event.inputs.environment }} environment"
+          echo "Review the logs for any warnings or recommendations" 

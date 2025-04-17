@@ -60,4 +60,71 @@ jobs:
           quiet: false # Show all results
           soft_fail: false # Fail the workflow on finding issues
           # Add other flags as needed, e.g., skip checks, external modules path
-          # check: CKV_AZURE_*, CKV2_AZURE_* # Optionally specify checks 
+          # check: CKV_AZURE_*, CKV2_AZURE_* # Optionally specify checks
+
+  format:
+    name: Terraform Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5.0"
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: false
+        
+  pre_plan_check:
+    name: Pre-Plan Validation
+    runs-on: ubuntu-latest
+    needs: [lint, security_scan, format]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5.0"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          
+      - name: Validate Dev Environment
+        id: validate_dev
+        run: |
+          cd environments/dev
+          terraform init -backend=false
+          terraform validate
+          
+      - name: Validate Prod Environment
+        id: validate_prod
+        run: |
+          cd environments/prod
+          terraform init -backend=false
+          terraform validate
+          
+      - name: Announce Success
+        if: success()
+        run: echo "All environments validated successfully! Ready for TFC plan/apply."
+
+  # Note: The actual plan/apply happens in Terraform Cloud 
+  # This job is for notification only
+  terraform_cloud_notification:
+    name: Notify Terraform Cloud
+    runs-on: ubuntu-latest
+    needs: [pre_plan_check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Post Success Notification
+        run: |
+          echo "Code has passed all checks and is now being processed by Terraform Cloud."
+          echo "Check Terraform Cloud workspaces for plan/apply status:"
+          echo "- Dev workspace: https://app.terraform.io/app/opella/workspaces/dev-opella"
+          echo "- Prod workspace: https://app.terraform.io/app/opella/workspaces/prod-opella" 

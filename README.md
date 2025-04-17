@@ -17,14 +17,18 @@ Deploy Azure infrastructure using reusable Terraform modules, Terraform Cloud wo
 ```
 .
 ├── .github/workflows/         # GitHub Actions workflows (CI)
-│   └── ci.yml
+│   ├── ci.yml                 # Pre-deployment quality checks
+│   ├── post-deploy.yml        # Post-deployment validation
+│   └── docs.yml               # Documentation generation
 ├── environments/
 │   ├── common/                # Optional: Common configuration (e.g., providers)
 │   ├── dev/                   # Development environment configuration
 │   │   ├── main.tf
+│   │   ├── variables.tf
 │   │   └── versions.tf
 │   └── prod/                  # Production environment configuration
 │       ├── main.tf
+│       ├── variables.tf  
 │       └── versions.tf
 ├── modules/
 │   └── vnet/                  # Reusable VNet module
@@ -59,6 +63,9 @@ Deploy Azure infrastructure using reusable Terraform modules, Terraform Cloud wo
     *   Configure Azure credentials (OIDC recommended or Service Principal) as environment variables within each TFC workspace.
 3.  **Configure GitHub Actions (if using OIDC):**
     *   Set up the OIDC trust relationship between GitHub Actions and Azure AD.
+4.  **Set up GitHub Secrets:**
+    *   `TF_API_TOKEN` - Terraform Cloud API token for authentication
+    *   `AZURE_CREDENTIALS` - JSON credential object for Azure CLI authentication in post-deploy checks
 
 ## OIDC Authentication with Azure and Terraform Cloud
 
@@ -151,13 +158,80 @@ If you encounter authentication issues:
 3. Check that the App Registration has appropriate Azure RBAC permissions
 4. Examine Terraform Cloud run logs for specific authentication errors
 
+## CI/CD Workflows
+
+This project implements a robust CI/CD pipeline using GitHub Actions and Terraform Cloud. The workflow consists of several stages that ensure quality, security, and proper deployment of infrastructure.
+
+### Pre-Deployment Checks (GitHub Actions)
+
+The `ci.yml` workflow performs several quality checks before code reaches the deployment stage:
+
+1. **TFLint**: Validates Terraform code against best practices and syntax rules
+   - Runs recursively across all modules and environments
+   - Provides detailed feedback on code quality issues
+
+2. **Checkov Security Scan**: Performs static code analysis for security vulnerabilities
+   - Identifies insecure configurations before they reach production
+   - Enforces security best practices
+
+3. **Terraform Format Check**: Ensures consistent code formatting
+   - Validates code is formatted according to HashiCorp standards
+   - Maintains codebase readability and consistency
+
+4. **Pre-Plan Validation**: Runs `terraform validate` on each environment
+   - Verifies syntax and internal consistency
+   - Catches configuration errors before deployment
+
+### Deployment Process (Terraform Cloud)
+
+After the GitHub Actions checks pass, Terraform Cloud takes over for the actual deployment:
+
+1. **Plan Stage**: Generates an execution plan showing changes
+   - Automatically triggered by pushes to main branch
+   - Creates detailed report of proposed changes
+
+2. **Apply Stage**: Executes the planned changes
+   - Requires manual approval in the Terraform Cloud console
+   - Logs detailed information about applied resources
+
+### Post-Deployment Validation (GitHub Actions)
+
+The `post-deploy.yml` workflow can be manually triggered after deployment to verify the resulting infrastructure:
+
+1. **Azure Compliance Check**: Verifies resources against Azure Policy
+   - Identifies non-compliant resources
+   - Provides visibility into governance adherence
+
+2. **Security Validation**: Inspects deployed resources for security concerns
+   - Examines NSG rules for overly permissive configurations
+   - Identifies potential security risks
+
+3. **Infrastructure Report**: Generates a comprehensive inventory
+   - Lists all deployed resources
+   - Documents the environment for reference
+
+### Documentation Automation
+
+The `docs.yml` workflow maintains up-to-date module documentation:
+
+1. **Automatic README Generation**: Updates module READMEs when code changes
+   - Uses terraform-docs to extract and format documentation
+   - Ensures documentation stays synchronized with code
+
+2. **Documentation Validation**: Verifies completeness of documentation
+   - Checks for required sections
+   - Ensures users have necessary information to use modules
+
 ## Usage
 
 *   **Pull Requests:** When a PR is opened, the GitHub Actions workflow (`.github/workflows/ci.yml`) will run `tflint` and `checkov` to validate the code.
 *   **Merge to Main:** When changes are merged into the `main` branch, Terraform Cloud will automatically trigger a `plan` for the affected workspace(s).
 *   **Apply:** Log in to the Terraform Cloud UI to review the plan and manually approve the `apply` (especially for `prod`).
+*   **Post-Deployment Validation:** After deployment, manually trigger the post-deploy workflow to validate the infrastructure.
 
 ## Tools
 
 *   **TFLint:** Lints Terraform code for errors and best practices.
-*   **Checkov:** Scans Infrastructure as Code for security misconfigurations. 
+*   **Checkov:** Scans Infrastructure as Code for security misconfigurations.
+*   **terraform-docs:** Automatically generates documentation from Terraform modules.
+*   **Azure CLI:** Used in post-deployment checks to validate the provisioned infrastructure. 

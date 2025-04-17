@@ -54,6 +54,24 @@ module "vnet" {
 }
 ```
 
+## Implementation Notes
+
+- This module follows Azure networking best practices
+- NSG rules include sensible defaults for enhanced security
+- Subnet design supports segregation of workloads
+- All resources support tagging for governance and cost tracking
+
+<!-- BEGIN_TF_DOCS -->
+<!-- Terraform-docs content will be automatically generated here -->
+<!-- END_TF_DOCS -->
+
+## Security Considerations
+
+- Review NSG rules carefully, especially for production use
+- Consider using Azure Private Link for PaaS services
+- For additional security, evaluate Azure Firewall or NVA options
+- Apply least privilege principle to network access rules
+
 ## Inputs
 
 | Name                  | Description                                                                                           | Type                                                                                                                              | Default                                          | Required |
