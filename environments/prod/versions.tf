@@ -19,7 +19,10 @@ terraform {
 
 provider "azurerm" {
   features {}
-  use_oidc = true
-  # Credentials will be configured in Terraform Cloud (OIDC or Service Principal)
-  use_cli = false  # Force le désactivation complète du fallback CLI
+  use_cli = false
+  
+  # Pas besoin de use_oidc = true pour TFC, il utilise TFC_AZURE_PROVIDER_AUTH à la place
+  # Ajoute ces valeurs dans le fichier ou utilise des variables
+  # subscription_id = "ton-subscription-id"
+  # tenant_id       = "ton-tenant-id"
 }

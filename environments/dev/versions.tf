@@ -10,16 +10,32 @@ terraform {
   # }
 
   required_providers {
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "3.0.2"
+    }
+ 
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "3.116.0" # Essayer cette version spécifique
     }
+ 
+    tfe = {
+      source  = "hashicorp/tfe"
+      version = "0.62.0"
+    }
   }
 }
+ 
+provider "azuread" {}
+
 
 provider "azurerm" {
   features {}
-  use_oidc = true
-  use_cli = false  # Force le désactivation complète du fallback CLI
-  # Credentials will be configured in Terraform Cloud (OIDC or Service Principal)
+  use_cli = false
+  
+  # Pas besoin de use_oidc = true pour TFC, il utilise TFC_AZURE_PROVIDER_AUTH à la place
+  # Ajoute ces valeurs dans le fichier ou utilise des variables
+  # subscription_id = "ton-subscription-id"
+  # tenant_id       = "ton-tenant-id"
 } 
