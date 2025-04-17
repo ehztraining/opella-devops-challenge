@@ -30,6 +30,65 @@ variable "vm_size" {
   default     = "Standard_B2s" # Larger than dev
 }
 
+# KeyVault for Customer Managed Keys
+resource "azurerm_key_vault" "main" {
+  name                        = "kv-${local.environment}-${var.location}-main"
+  location                    = var.location
+  resource_group_name         = azurerm_resource_group.main.name
+  enabled_for_disk_encryption = true
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  soft_delete_retention_days  = 90 # Higher retention for prod
+  purge_protection_enabled    = true
+  sku_name                    = "standard"
+
+  # Disable public network access and configure firewall
+  public_network_access_enabled = false
+  network_acls {
+    default_action = "Deny"
+    bypass         = "AzureServices"
+    ip_rules       = []
+    virtual_network_subnet_ids = [
+      module.vnet.subnets["default"].id
+    ]
+  }
+
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+
+    key_permissions = [
+      "Get", "Create", "List", "Delete", "Purge", "Recover", "GetRotationPolicy",
+      "SetRotationPolicy", "Rotate", "Encrypt", "Decrypt", "UnwrapKey", "WrapKey"
+    ]
+  }
+
+  tags = local.common_tags
+}
+
+# Create a key for storage encryption
+resource "azurerm_key_vault_key" "storage_key" {
+  name            = "storage-key"
+  key_vault_id    = azurerm_key_vault.main.id
+  key_type        = "RSA-HSM"                      # Use HSM-backed key
+  key_size        = 3072                           # Stronger for production
+  expiration_date = timeadd(timestamp(), "17520h") # 2 years from now
+
+  key_opts = [
+    "decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey"
+  ]
+
+  rotation_policy {
+    automatic {
+      time_before_expiry = "P30D"
+    }
+
+    expire_after         = "P180D" # Longer for prod
+    notify_before_expiry = "P29D"
+  }
+}
+
+data "azurerm_client_config" "current" {}
+
 locals {
   environment = "prod"
   common_tags = {
@@ -99,6 +158,16 @@ module "vnet" {
   tags = local.common_tags
 }
 
+# Create Log Analytics Workspace for diagnostics with longer retention
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "law-${local.environment}-${var.location}-main"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 90 # 90 days for prod
+  tags                = local.common_tags
+}
+
 # Create Storage Account with enhanced security
 resource "azurerm_storage_account" "main" {
   name                      = local.storage_account_name
@@ -124,6 +193,10 @@ resource "azurerm_storage_account" "main" {
     container_delete_retention_policy {
       days = 30
     }
+
+    # Enable change feed and versioning for audit trail
+    change_feed_enabled = true
+    versioning_enabled  = true
   }
 
   # Queue logging
@@ -137,6 +210,16 @@ resource "azurerm_storage_account" "main" {
     }
   }
 
+  # Customer Managed Key encryption
+  identity {
+    type = "SystemAssigned"
+  }
+
+  customer_managed_key {
+    key_vault_key_id          = azurerm_key_vault_key.storage_key.id
+    user_assigned_identity_id = null # Using System Assigned identity
+  }
+
   tags = local.common_tags
 }
 
@@ -145,6 +228,55 @@ resource "azurerm_storage_container" "data" {
   name                  = "data"
   storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
+}
+
+# Configure diagnostic settings for blob storage
+resource "azurerm_monitor_diagnostic_setting" "blob_diagnostics" {
+  name                       = "blob-diagnostics"
+  target_resource_id         = "${azurerm_storage_account.main.id}/blobServices/default"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "StorageRead"
+    retention_policy {
+      enabled = true
+      days    = 30
+    }
+  }
+
+  enabled_log {
+    category = "StorageWrite"
+    retention_policy {
+      enabled = true
+      days    = 30
+    }
+  }
+
+  enabled_log {
+    category = "StorageDelete"
+    retention_policy {
+      enabled = true
+      days    = 30
+    }
+  }
+
+  metric {
+    category = "Capacity"
+    enabled  = true
+    retention_policy {
+      enabled = true
+      days    = 30
+    }
+  }
+
+  metric {
+    category = "Transaction"
+    enabled  = true
+    retention_policy {
+      enabled = true
+      days    = 30
+    }
+  }
 }
 
 # Create a private endpoint for storage account
@@ -159,6 +291,23 @@ resource "azurerm_private_endpoint" "storage" {
     private_connection_resource_id = azurerm_storage_account.main.id
     is_manual_connection           = false
     subresource_names              = ["blob"]
+  }
+
+  tags = local.common_tags
+}
+
+# Create a private endpoint for KeyVault
+resource "azurerm_private_endpoint" "keyvault" {
+  name                = "pe-${azurerm_key_vault.main.name}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = module.vnet.subnets["default"].id
+
+  private_service_connection {
+    name                           = "psc-keyvault"
+    private_connection_resource_id = azurerm_key_vault.main.id
+    is_manual_connection           = false
+    subresource_names              = ["vault"]
   }
 
   tags = local.common_tags
