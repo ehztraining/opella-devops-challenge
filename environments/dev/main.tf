@@ -207,10 +207,10 @@ resource "azurerm_storage_container" "data" {
   container_access_type = "private"
 }
 
-# Configure diagnostic settings for blob storage
-resource "azurerm_monitor_diagnostic_setting" "blob_diagnostics" {
-  name                       = "blob-diagnostics"
-  target_resource_id         = "${azurerm_storage_account.main.id}/blobServices/default"
+# Configure diagnostic settings specific to blob storage container
+resource "azurerm_monitor_diagnostic_setting" "container_diagnostics" {
+  name                       = "container-diagnostics"
+  target_resource_id         = "${azurerm_storage_account.main.id}/blobServices/default/containers/${azurerm_storage_container.data.name}"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
@@ -237,23 +237,10 @@ resource "azurerm_monitor_diagnostic_setting" "blob_diagnostics" {
     }
   }
 
-  metric {
-    category = "Capacity"
-    enabled  = true
-    retention_policy {
-      enabled = true
-      days    = 7
-    }
-  }
-
-  metric {
-    category = "Transaction"
-    enabled  = true
-    retention_policy {
-      enabled = true
-      days    = 7
-    }
-  }
+  depends_on = [
+    azurerm_storage_container.data,
+    azurerm_log_analytics_workspace.main
+  ]
 }
 
 # Create Log Analytics Workspace for diagnostics

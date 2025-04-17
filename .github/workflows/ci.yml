@@ -41,7 +41,7 @@ jobs:
       - name: Run TFLint
         # Run recursively   to check modules and environments
         # Exclude .terraform directories to avoid linting provider schemas/cache
-        run: tflint --recursive --force --module --disable-rule=terraform_unused_declarations --exclude-path=**/.terraform/**
+        run: tflint --recursive --force --call-module-type=all --disable-rule=terraform_unused_declarations --exclude-path=**/.terraform/**
 
 
   security_scan:
