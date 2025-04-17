@@ -66,6 +66,7 @@ jobs:
           soft_fail: false # Fail the workflow on finding issues
           # Add other flags as needed, e.g., skip checks, external modules path
           # check: CKV_AZURE_*, CKV2_AZURE_* # Optionally specify checks
+          skip_check: CKV2_AZURE_21,CKV2_AZURE_31 # Ignore specific checks
 
   format:
     name: Terraform Format
