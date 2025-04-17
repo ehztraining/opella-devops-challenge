@@ -39,7 +39,7 @@ jobs:
           TF_LOG: "TRACE" # Enables detailed logging during init for debugging
 
       - name: Run TFLint
-        # Run recursively to check modules and environments
+        # Run recursively   to check modules and environments
         # Exclude .terraform directories to avoid linting provider schemas/cache
         run: tflint --recursive --force --module --disable-rule=terraform_unused_declarations --exclude-path=**/.terraform/**
 
