@@ -185,29 +185,23 @@ resource "azurerm_storage_account" "main" {
   # Shared key authorization settings
   shared_access_key_enabled = false
 
-  # Blob storage settings
+  # Blob storage settings with logging
   blob_properties {
+    logging {
+      delete                = true
+      read                  = true
+      write                 = true
+      version               = "1.0"
+      retention_policy_days = 30 # Longer retention for prod
+    }
     delete_retention_policy {
       days = 30 # Higher retention for production
     }
     container_delete_retention_policy {
       days = 30
     }
-
-    # Enable change feed and versioning for audit trail
     change_feed_enabled = true
     versioning_enabled  = true
-  }
-
-  # Queue logging
-  queue_properties {
-    logging {
-      delete                = true
-      read                  = true
-      write                 = true
-      version               = "1.0"
-      retention_policy_days = 30
-    }
   }
 
   # Customer Managed Key encryption
@@ -228,42 +222,6 @@ resource "azurerm_storage_container" "data" {
   name                  = "data"
   storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
-}
-
-# Configure diagnostic settings specific to blob storage container
-resource "azurerm_monitor_diagnostic_setting" "container_diagnostics" {
-  name                       = "container-diagnostics"
-  target_resource_id         = "${azurerm_storage_account.main.id}/blobServices/default/containers/${azurerm_storage_container.data.name}"
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-
-  enabled_log {
-    category = "StorageRead"
-    retention_policy {
-      enabled = true
-      days    = 30
-    }
-  }
-
-  enabled_log {
-    category = "StorageWrite"
-    retention_policy {
-      enabled = true
-      days    = 30
-    }
-  }
-
-  enabled_log {
-    category = "StorageDelete"
-    retention_policy {
-      enabled = true
-      days    = 30
-    }
-  }
-
-  depends_on = [
-    azurerm_storage_container.data,
-    azurerm_log_analytics_workspace.main
-  ]
 }
 
 # Create a private endpoint for storage account
