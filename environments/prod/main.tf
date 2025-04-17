@@ -17,11 +17,17 @@ variable "vm_admin_password" {
   sensitive   = true # Mark as sensitive, set in TFC
 }
 
+variable "ssh_public_key" {
+  description = "SSH public key for VM authentication"
+  type        = string
+  sensitive   = true # Mark as sensitive, set in TFC
+}
+
 # Example Prod-specific variable (could be VM size, etc.)
 variable "vm_size" {
-    description = "Size of the production VM."
-    type = string
-    default = "Standard_B2s" # Larger than dev
+  description = "Size of the production VM."
+  type        = string
+  default     = "Standard_B2s" # Larger than dev
 }
 
 locals {
@@ -31,12 +37,12 @@ locals {
     managed-by  = "terraform"
     project     = "opella-challenge"
   }
-  resource_group_name = "rg-${local.environment}-${var.location}-main"
-  vnet_name           = "vnet-${local.environment}-${var.location}-main"
+  resource_group_name  = "rg-${local.environment}-${var.location}-main"
+  vnet_name            = "vnet-${local.environment}-${var.location}-main"
   storage_account_name = "st${local.environment}${var.location}main${substr(md5(local.resource_group_name), 0, 8)}" # Unique name
-  vm_name             = "vm-${local.environment}-${var.location}-web"
-  nic_name            = "nic-${local.environment}-${var.location}-web"
-  public_ip_name      = "pip-${local.environment}-${var.location}-web"
+  vm_name              = "vm-${local.environment}-${var.location}-web"
+  nic_name             = "nic-${local.environment}-${var.location}-web"
+  public_ip_name       = "pip-${local.environment}-${var.location}-web"
 }
 
 # Create Resource Group for Prod environment
@@ -60,26 +66,78 @@ module "vnet" {
       address_prefixes = ["10.20.1.0/24"]
     },
     "vm-subnet" = { # Subnet for the VM
-       address_prefixes = ["10.20.2.0/24"]
+      address_prefixes = ["10.20.2.0/24"]
     }
   }
 
-  # Production NSG Rules: Rely on the module's defaults (Deny Internet Inbound, Allow VNet/LB)
-  # No permissive SSH rule like in dev.
-  # If specific ports need opening (e.g. 80/443), add explicit rules here.
-  # nsg_rules = [ ... ] # Override if necessary
+  # Production NSG Rules: Restrictive by default
+  nsg_rules = [
+    {
+      name                       = "DenyAllInbound"
+      priority                   = 200
+      direction                  = "Inbound"
+      access                     = "Deny"
+      protocol                   = "*"
+      source_port_range          = "*"
+      destination_port_range     = "*"
+      source_address_prefix      = "Internet"
+      destination_address_prefix = "*"
+    },
+    {
+      name                       = "AllowVNetInbound"
+      priority                   = 100
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "*"
+      source_port_range          = "*"
+      destination_port_range     = "*"
+      source_address_prefix      = "VirtualNetwork"
+      destination_address_prefix = "VirtualNetwork"
+    }
+  ]
 
   tags = local.common_tags
 }
 
-# Create Storage Account
+# Create Storage Account with enhanced security
 resource "azurerm_storage_account" "main" {
-  name                     = local.storage_account_name
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  tags                     = local.common_tags
+  name                      = local.storage_account_name
+  resource_group_name       = azurerm_resource_group.main.name
+  location                  = azurerm_resource_group.main.location
+  account_tier              = "Standard"
+  account_replication_type  = "GRS" # Geo-redundant storage for better replication
+  enable_https_traffic_only = true
+  min_tls_version           = "TLS1_2"
+
+  # Block public access
+  allow_nested_items_to_be_public = false
+  public_network_access_enabled   = false
+
+  # Shared key authorization settings
+  shared_access_key_enabled = false
+
+  # Blob storage settings
+  blob_properties {
+    delete_retention_policy {
+      days = 30 # Higher retention for production
+    }
+    container_delete_retention_policy {
+      days = 30
+    }
+  }
+
+  # Queue logging
+  queue_properties {
+    logging {
+      delete                = true
+      read                  = true
+      write                 = true
+      version               = "1.0"
+      retention_policy_days = 30
+    }
+  }
+
+  tags = local.common_tags
 }
 
 # Create Storage Container
@@ -89,40 +147,55 @@ resource "azurerm_storage_container" "data" {
   container_access_type = "private"
 }
 
-# Create Public IP for VM
-resource "azurerm_public_ip" "main" {
-  name                = local.public_ip_name
+# Create a private endpoint for storage account
+resource "azurerm_private_endpoint" "storage" {
+  name                = "pe-${local.storage_account_name}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = local.common_tags
+  subnet_id           = module.vnet.subnets["default"].id
+
+  private_service_connection {
+    name                           = "psc-storage"
+    private_connection_resource_id = azurerm_storage_account.main.id
+    is_manual_connection           = false
+    subresource_names              = ["blob"]
+  }
+
+  tags = local.common_tags
 }
 
-# Create Network Interface for VM
+# Network Interface for VM - Without public IP
 resource "azurerm_network_interface" "main" {
-  name                = local.nic_name
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  tags                = local.common_tags
+  name                 = local.nic_name
+  location             = azurerm_resource_group.main.location
+  resource_group_name  = azurerm_resource_group.main.name
+  enable_ip_forwarding = false
+  tags                 = local.common_tags
 
   ip_configuration {
     name                          = "internal"
     subnet_id                     = module.vnet.subnets["vm-subnet"].id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.main.id
+    # No public IP for prod
   }
 }
 
-# Create Linux Virtual Machine
+# Create Linux Virtual Machine with SSH key
 resource "azurerm_linux_virtual_machine" "main" {
-  name                = local.vm_name
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  size                = var.vm_size # Use prod-specific size
-  admin_username      = var.vm_admin_username
-  admin_password      = var.vm_admin_password
-  disable_password_authentication = false # Set to true if using SSH keys
+  name                            = local.vm_name
+  resource_group_name             = azurerm_resource_group.main.name
+  location                        = azurerm_resource_group.main.location
+  size                            = var.vm_size # Use prod-specific size
+  admin_username                  = var.vm_admin_username
+  disable_password_authentication = true # Using SSH keys instead of password
+
+  admin_ssh_key {
+    username   = var.vm_admin_username
+    public_key = var.ssh_public_key
+  }
+
+  # No VM extensions
+  allow_extension_operations = false
 
   network_interface_ids = [
     azurerm_network_interface.main.id,
@@ -149,9 +222,9 @@ output "prod_resource_group_name" {
   value       = azurerm_resource_group.main.name
 }
 
-output "prod_vm_public_ip" {
-  description = "Public IP address of the production VM."
-  value       = azurerm_public_ip.main.ip_address
+output "prod_vm_private_ip" {
+  description = "Private IP address of the production VM."
+  value       = azurerm_network_interface.main.private_ip_address
 }
 
 output "prod_storage_account_name" {
@@ -162,8 +235,8 @@ output "prod_storage_account_name" {
 output "prod_vnet_info" {
   description = "Information about the VNet created for prod."
   value = {
-    id = module.vnet.vnet_id
-    name = module.vnet.vnet_name
+    id      = module.vnet.vnet_id
+    name    = module.vnet.vnet_name
     subnets = module.vnet.subnet_ids
   }
 } 

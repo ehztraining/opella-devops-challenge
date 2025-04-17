@@ -14,12 +14,12 @@ terraform {
       source  = "hashicorp/azuread"
       version = "~> 2.0"
     }
-    
+
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "3.116.0"
     }
-    
+
     tfe = {
       source  = "hashicorp/tfe"
       version = "~> 0.40.0"
@@ -34,7 +34,7 @@ provider "azuread" {
 provider "azurerm" {
   features {}
   use_cli = false
-  
+
   # Récupération des valeurs depuis les variables existantes dans TFC
   # (à adapter si tu as déjà configuré des variables différentes)
   subscription_id = var.ARM_SUBSCRIPTION_ID

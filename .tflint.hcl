@@ -10,8 +10,7 @@ plugin "azurerm" {
   source  = "github.com/terraform-linters/tflint-ruleset-azurerm"
 }
 
-ruleset {
-  name    = "recommended"
-  version = "0.2.0" # Example version, check for latest
-  source  = "github.com/terraform-linters/tflint-ruleset-recommended"
+plugin "terraform" {
+  enabled = true
+  preset = "recommended"
 } 
