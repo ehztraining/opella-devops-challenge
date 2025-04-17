@@ -10,19 +10,37 @@ terraform {
   # }
 
   required_providers {
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.0"
+    }
+    
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "3.116.0"
     }
+    
+    tfe = {
+      source  = "hashicorp/tfe"
+      version = "~> 0.40.0"
+    }
   }
+}
+
+provider "azuread" {
+  # Utilisation des identifiants disponibles dans l'environnement
 }
 
 provider "azurerm" {
   features {}
   use_cli = false
   
-  # Pas besoin de use_oidc = true pour TFC, il utilise TFC_AZURE_PROVIDER_AUTH à la place
-  # Ajoute ces valeurs dans le fichier ou utilise des variables
-  # subscription_id = "ton-subscription-id"
-  # tenant_id       = "ton-tenant-id"
+  # Récupération des valeurs depuis les variables existantes dans TFC
+  # (à adapter si tu as déjà configuré des variables différentes)
+  subscription_id = var.ARM_SUBSCRIPTION_ID
+}
+
+provider "tfe" {
+  # Utilise les identifiants d'environnement ou token disponible
+  organization = "opella"
 }
